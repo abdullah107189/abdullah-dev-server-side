@@ -112,12 +112,41 @@ async function run() {
     }
 
     app.get("/projects/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await projectsCollection.findOne(query);
-      res.send(result);
-    });
+      try {
+        const { id } = req.params;
+        // Validate ID format
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({
+            success: false,
+            error: "Invalid project ID format",
+            message: "Please provide a valid project ID",
+          });
+        }
 
+        const query = { _id: new ObjectId(id) };
+        const project = await projectsCollection.findOne(query);
+
+        // Success response
+        res.status(200).json(project);
+      } catch (error) {
+        console.error("Error fetching project:", error);
+
+        // Handle different types of errors
+        if (error.name === "CastError") {
+          return res.status(400).json({
+            success: false,
+            error: "Invalid ID format",
+            message: "The provided ID is not valid",
+          });
+        }
+
+        res.status(500).json({
+          success: false,
+          error: "Internal server error",
+          message: "Failed to retrieve project",
+        });
+      }
+    });
     // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
