@@ -30,77 +30,69 @@ async function run() {
     });
     app.get("/projects", async (req, res) => {
       try {
-        const { limit, page = 1, skip } = req.query;
-        const pageNum = parseInt(page);
-        const limitNum = limit ? parseInt(limit) : null;
-        const skipNum = skip ? parseInt(skip) : null;
+        const { page = 1, limit = 8, search } = req.query;
+        const pageNum = Math.max(1, parseInt(page));
+        const limitNum = Math.min(50, Math.max(1, parseInt(limit))); // Limit max 50
 
-        // Get all projects first
+        // Get all projects
         const allProjects = await projectsCollection.find().toArray();
 
-        // Convert and sort dates properly
-        const sortedProjects = allProjects.sort((a, b) => {
+        // Filter by search if provided
+        let filteredProjects = allProjects;
+        if (search) {
+          const searchLower = search.toLowerCase();
+          filteredProjects = allProjects.filter(
+            (project) =>
+              project.name?.toLowerCase().includes(searchLower) ||
+              project.description?.toLowerCase().includes(searchLower) ||
+              project.technologies?.some((tech) =>
+                tech.toLowerCase().includes(searchLower)
+              )
+          );
+        }
+
+        // Sort by date
+        const sortedProjects = filteredProjects.sort((a, b) => {
           const dateA = convertToTimestamp(a.creationDate);
           const dateB = convertToTimestamp(b.creationDate);
-          return dateB - dateA; // Descending order (newest first)
+          return dateB - dateA;
         });
 
         // Calculate pagination
         const totalProjects = sortedProjects.length;
-        const currentPage = pageNum > 0 ? pageNum : 1;
+        const totalPages = Math.ceil(totalProjects / limitNum);
+        const currentPage = Math.min(pageNum, totalPages);
+        const startIndex = (currentPage - 1) * limitNum;
+        const endIndex = Math.min(startIndex + limitNum, totalProjects);
 
-        // Handle skip and limit
-        let startIndex = 0;
-
-        if (skipNum !== null) {
-          startIndex = skipNum;
-        } else if (limitNum) {
-          startIndex = (currentPage - 1) * limitNum;
-        }
-
-        // Apply skip/limit
-        let resultProjects = sortedProjects;
-        if (skipNum !== null || limitNum) {
-          resultProjects = sortedProjects.slice(
-            startIndex,
-            limitNum ? startIndex + limitNum : undefined
-          );
-        }
-
-        // Calculate pagination info
-        const totalPages = limitNum ? Math.ceil(totalProjects / limitNum) : 1;
-        const hasNextPage = limitNum
-          ? startIndex + limitNum < totalProjects
-          : false;
-        const hasPrevPage = startIndex > 0;
+        // Get projects for current page
+        const paginatedProjects = sortedProjects.slice(startIndex, endIndex);
 
         res.json({
           success: true,
-          data: resultProjects,
+          data: paginatedProjects,
           pagination: {
-            currentPage: currentPage,
-            totalPages: totalPages,
-            totalProjects: totalProjects,
+            currentPage,
+            totalPages,
+            totalProjects,
             projectsPerPage: limitNum,
-            hasNextPage: hasNextPage,
-            hasPrevPage: hasPrevPage,
-            nextPage: hasNextPage ? currentPage + 1 : null,
-            prevPage: hasPrevPage ? currentPage - 1 : null,
-            showing: `${startIndex + 1}-${Math.min(
-              startIndex + (limitNum || totalProjects),
-              totalProjects
-            )} of ${totalProjects}`,
+            hasNextPage: currentPage < totalPages,
+            hasPrevPage: currentPage > 1,
+            nextPage: currentPage < totalPages ? currentPage + 1 : null,
+            prevPage: currentPage > 1 ? currentPage - 1 : null,
+            startIndex: startIndex + 1,
+            endIndex,
+            search: search || null,
           },
         });
       } catch (error) {
-        console.error("Sorting error:", error);
+        console.error("Projects fetch error:", error);
         res.status(500).json({
           success: false,
           error: "Internal server error",
         });
       }
     });
-
     // Helper function to convert "DD-MM-YYYY" to timestamp
     function convertToTimestamp(dateString) {
       try {
